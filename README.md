@@ -3,7 +3,7 @@
 
 2. Introduction
 
-    In real world the permanent magnet AC motor is not as ideal. Tha latest motor develpmment trends shows that mid and high-end segment motors are close to ideal. Thanks to the advanced CAD product these motor can be controlled with classical sine wave control as we have learned at school. 
+    In real world the permanent magnet AC motor is not as ideal. The latest motor develpmment trends shows that mid and high-end segment motors are close to ideal. Thanks to the advanced CAD product these motor can be controlled with classical sine wave control as we have learned at school. 
 Unfortunately, the low-end segment motors suffer for non-linearity – many tradeoff has been made, price, weight, power density.
 
 
