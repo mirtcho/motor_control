@@ -276,7 +276,7 @@ class Emf2():
 
 	def calc_aplha_beta(self,offset=0.0):
 		#park matrix
-		T=[[2.0/3.0,-1.0/3.0,-1.0/3.0],[0,1.0/m.sqrt(3.0),-1.0/m.sqrt(3.0)],[1.0/3.0,1.0/3.0,1.0/3.0]]
+		T=[[2.0/3.0,-1.0/3.0,-1.0/3.0],[0,1.0/m.sqrt(3.0),-1.0/m.sqrt(3.0)],[1.0/3.0,1.0/3.0,1.0/3.0]] # from wikipedia
 		for i in range(0,800):
 			angle=i*m.pi/200
 			h1_angle=5*angle
@@ -285,8 +285,8 @@ class Emf2():
 			self.ib[i] = 1.0*m.sin(angle+2*m.pi/3+offset)+0.07*m.sin(h1_angle+10*m.pi/3+5*offset)
 			self.ic[i] = 1.0*m.sin(angle+4*m.pi/3+offset)+0.07*m.sin(h1_angle+20*m.pi/3+5*offset)
 			#convert to alpha beta
-			self.ya[i] = T[0][0]*self.ia[i]+T[0][1]*self.ib[i]+T[0][2]*self.ic[i]
-			self.yb[i] = T[1][0]*self.ia[i]+T[1][1]*self.ib[i]+T[1][2]*self.ic[i]
+			self.ya[i] = T[0][0]*self.ia[i]+T[0][1]*self.ib[i]+T[0][2]*self.ic[i] # y coordinate stator
+			self.yb[i] = T[1][0]*self.ia[i]+T[1][1]*self.ib[i]+T[1][2]*self.ic[i] # x coordinate stator
 			self.yc[i] = T[2][0]*self.ia[i]+T[2][1]*self.ib[i]+T[2][2]*self.ic[i]
 		#show input signals
 		#plt.plot(self.xx,self.ia, self.xx,self.ib, self.xx,self.ic)
@@ -294,10 +294,10 @@ class Emf2():
 		#plt.legend(('Ia','Ib','Ic'),loc='upper right')
 		#plt.show()
 		# show alpha beta 
-		#plt.plot(self.xx,self.ya, self.xx,self.yb, self.xx,self.yc)
-		#plt.title('ALpha transformation test with 5-th harmonics')
-		#plt.legend(('Alpha','Beta','Gama'),loc='upper right')
-		#plt.show()
+		plt.plot(self.xx,self.ya, self.xx,self.yb, self.xx,self.yc)
+		plt.title('ALpha transformation test with 5-th harmonics')
+		plt.legend(('Alpha','Beta','Gama'),loc='upper right')
+		plt.show()
 
 	def clark(self,offset=0):
 		#create alpha beta signals with 5-th harmomic
@@ -307,8 +307,8 @@ class Emf2():
 		for i in range(0,800):
 			angle=i*m.pi/200			
 			#real park
-			self.d1[i] = self.ya[i]*m.sin(angle) + self.yb[i]*m.cos(angle) 
-			self.q1[i] = self.yb[i]*m.sin(angle) - self.ya[i]*m.cos(angle)
+			self.d1[i] =  self.yb[i]*m.cos(angle) + self.ya[i]*m.sin(angle) 
+			self.q1[i] = -self.yb[i]*m.sin(angle) + self.ya[i]*m.cos(angle) # from wikipedia. arm library was negative + sin - cos
 			d1_av = d1_av+self.d1[i]
 			q1_av = q1_av+self.q1[i]
 		d1_av=d1_av/800
@@ -317,9 +317,9 @@ class Emf2():
 		for i in range(0,800):
 			angle=i*m.pi/200			
 			h1_angle=6*angle
-			self.d5[i] = (self.q1[i]-q1_av) *m.sin(h1_angle) + (self.d1[i]-d1_av) *m.cos(h1_angle) 
-			self.q5[i] = (self.d1[i]-d1_av) *m.sin(h1_angle) - (self.q1[i]-q1_av) *m.cos(h1_angle)
-			self.d1_av[i]=d1_av  # used by back transformation
+			self.d5[i] = (self.q1[i]-q1_av) *m.cos(h1_angle) + (self.d1[i]-d1_av) *m.sin(h1_angle) 
+			self.q5[i] =-(self.q1[i]-q1_av) *m.sin(h1_angle) + (self.d1[i]-d1_av) *m.cos(h1_angle)  # from wikipedia - arm librrary was negative
+			self.d1_av[i]=d1_av  # vector used by back transformation
 			self.q1_av[i]=q1_av
 		plt.plot(self.xx,self.d1,self.q1)		
 		plt.title('DQ transformation test with 5-th harmonics')
@@ -334,14 +334,12 @@ class Emf2():
 		for i in range(0,800):
 			angle=i*m.pi/200
 			h1_angle=5*angle
-			y1a=self.q1_av[i]*m.cos(angle)    + self.d1_av[i]*m.sin(angle)
-			y1b=self.d1_av[i]*m.cos(angle)    - self.q1_av[i]*m.sin(angle)
-			y5a=self.q5[i]   *m.cos(h1_angle) + self.d5[i]   *m.sin(h1_angle)
-			y5b=self.d5[i]   *m.cos(h1_angle) - self.q5[i]   *m.sin(h1_angle)
+			y1b=self.d1_av[i]*m.cos(angle)    - self.q1_av[i]*m.sin(angle)  ## alpha and beta for H1 and h5 are swaped????????????
+			y1a=self.d1_av[i]*m.sin(angle)    + self.q1_av[i]*m.cos(angle)
+			y5a=self.d5[i]   *m.cos(h1_angle) - self.q5[i]   *m.sin(h1_angle)
+			y5b=self.d5[i]   *m.sin(h1_angle) + self.q5[i]   *m.cos(h1_angle)
 			self.calc_ya[i]=(y1a+y5a)
 			self.calc_yb[i]=(y1b+y5b) 
-			#self.calc_ya[i] = self.q[i]*(m.cos(angle)+0.07*m.cos(h1_angle)) + self.d[i]*(m.sin(angle)+0.07*m.sin(h1_angle))#works with Iq=0
-			#self.calc_yb[i] = self.d[i]*(m.cos(angle)-0.07*m.cos(h1_angle)) - self.q[i]*(m.sin(angle)-0.07*m.sin(h1_angle))#works with Iq=0
 		plt.plot(self.xx,self.calc_ya,self.calc_yb)
 		#plt.plot(self.xx,self.ya,self.yb)
 		plt.title('DQ Inverse transformation test with 5-th harmonics')
@@ -350,7 +348,7 @@ class Emf2():
 
 
 	def inv_clark(self):
-		T=[[1.0,0.0,1.0],[-0.5,m.sqrt(3)/2,1.0],[-0.5,-m.sqrt(3)/2,1.0]]
+		T=[[1.0,0.0,1.0],[-0.5,m.sqrt(3)/2,1.0],[-0.5,-m.sqrt(3)/2,1.0]]#from wikipedia
 		for i in range(0,800):
 			self.calc_ia[i]=T[0][0]*self.calc_ya[i] + T[0][1]*self.calc_yb[i] #gamma is zero  
 			self.calc_ib[i]=T[1][0]*self.calc_ya[i] + T[1][1]*self.calc_yb[i] #gamma is zero
