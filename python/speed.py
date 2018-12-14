@@ -61,6 +61,7 @@ class Speed:
 		for i in range (10,240):
 			f_cpx.real[i]= f_cpx.real[i]/50.0
 			f_cpx.imag[i]= f_cpx.imag[i]/50.0
+		#end workaround 
 		plt.plot(f,f_cpx.real,f_cpx.imag)
 		plt.title('Velocity ripple spectrum '+self.gFname)
 		plt.show()
@@ -86,16 +87,6 @@ class Speed:
 		#create position sector every 10usec
 		a=1
 		print(a)
-
-
-	def do_bafang(self,a5=3,fi5=0.0):
-		xx=range(0,800)
-		y=range(0,800)
-		for i in range(0,800):
-			y[i]=30*m.sin(i*m.pi/200)+a5*m.sin(fi5 + 5*i*m.pi/200)
-		plt.plot(xx,y)
-		plt.title('Simulatte BackEMF Bafang')
-		plt.show()
 
 	def park7(self):
 		self.xx=range(0,800)
@@ -276,24 +267,25 @@ class Emf2():
 
 	def calc_aplha_beta(self,offset=0.0):
 		#park matrix
-		T=[[2.0/3.0,-1.0/3.0,-1.0/3.0],[0,1.0/m.sqrt(3.0),-1.0/m.sqrt(3.0)],[1.0/3.0,1.0/3.0,1.0/3.0]] # from wikipedia
+		#T=[[2.0/3.0,-1.0/3.0,-1.0/3.0],[0,1.0/m.sqrt(3.0),-1.0/m.sqrt(3.0)],[1.0/3.0,1.0/3.0,1.0/3.0]] # from wikipedia
+		T=[[1.0,0,0],[1.0/m.sqrt(3),2.0/m.sqrt(3),0],[0,0,0]] # from arm lib
 		for i in range(0,800):
 			angle=i*m.pi/200
 			h1_angle=5*angle
 			# create 3 phases Ia,Ib,Ic signals
-			self.ia[i] = 1.0*m.sin(angle+offset)+0.07*m.sin(h1_angle+5*offset)
-			self.ib[i] = 1.0*m.sin(angle+2*m.pi/3+offset)+0.07*m.sin(h1_angle+10*m.pi/3+5*offset)
-			self.ic[i] = 1.0*m.sin(angle+4*m.pi/3+offset)+0.07*m.sin(h1_angle+20*m.pi/3+5*offset)
+			self.ia[i] = 1.0*m.cos(angle+offset)+0.07*m.cos(h1_angle+5*offset)
+			self.ic[i] = 1.0*m.cos(angle+2*m.pi/3+offset)+0.07*m.cos(h1_angle+10*m.pi/3+5*offset)
+			self.ib[i] = 1.0*m.cos(angle+4*m.pi/3+offset)+0.07*m.cos(h1_angle+20*m.pi/3+5*offset)
 			#convert to alpha beta
 			self.ya[i] = T[0][0]*self.ia[i]+T[0][1]*self.ib[i]+T[0][2]*self.ic[i] # y coordinate stator
 			self.yb[i] = T[1][0]*self.ia[i]+T[1][1]*self.ib[i]+T[1][2]*self.ic[i] # x coordinate stator
 			self.yc[i] = T[2][0]*self.ia[i]+T[2][1]*self.ib[i]+T[2][2]*self.ic[i]
-		#show input signals
-		#plt.plot(self.xx,self.ia, self.xx,self.ib, self.xx,self.ic)
-		#plt.title('Input signals Ia,IB with Ic 5-th harmonics')
-		#plt.legend(('Ia','Ib','Ic'),loc='upper right')
-		#plt.show()
-		# show alpha beta 
+		#show input signals abc frame
+		plt.plot(self.xx,self.ia, self.xx,self.ib, self.xx,self.ic)
+		plt.title('Input signals Ia,IB with Ic 5-th harmonics')
+		plt.legend(('Ia','Ib','Ic'),loc='upper right')
+		plt.show()
+		# show alpha beta frame
 		plt.plot(self.xx,self.ya, self.xx,self.yb, self.xx,self.yc)
 		plt.title('ALpha transformation test with 5-th harmonics')
 		plt.legend(('Alpha','Beta','Gama'),loc='upper right')
@@ -305,18 +297,20 @@ class Emf2():
 		d1_av=0
 		q1_av=0
 		for i in range(0,800):
-			angle=i*m.pi/200			
+			stator_angle=i*m.pi/200
+			theta=stator_angle-m.pi/2.0- 0*m.pi/2 #		
 			#real park
-			self.d1[i] =  self.yb[i]*m.cos(angle) + self.ya[i]*m.sin(angle) 
-			self.q1[i] = -self.yb[i]*m.sin(angle) + self.ya[i]*m.cos(angle) # from wikipedia. arm library was negative + sin - cos
+			self.d1[i] =  self.ya[i]*m.cos(theta) + self.yb[i]*m.sin(theta) 
+			self.q1[i] = -self.ya[i]*m.sin(theta) + self.yb[i]*m.cos(theta)
 			d1_av = d1_av+self.d1[i]
 			q1_av = q1_av+self.q1[i]
 		d1_av=d1_av/800
 		q1_av=q1_av/800
 		print "d1_av=",d1_av,"q1_av=",q1_av
 		for i in range(0,800):
-			angle=i*m.pi/200			
-			h1_angle=6*angle
+			angle=i*m.pi/200
+			theta=angle-0*m.pi/2 # -90degree from stator vector to make Id=0			
+			h1_angle=6*theta
 			self.d5[i] = (self.q1[i]-q1_av) *m.cos(h1_angle) + (self.d1[i]-d1_av) *m.sin(h1_angle) 
 			self.q5[i] =-(self.q1[i]-q1_av) *m.sin(h1_angle) + (self.d1[i]-d1_av) *m.cos(h1_angle)  # from wikipedia - arm librrary was negative
 			self.d1_av[i]=d1_av  # vector used by back transformation
@@ -333,9 +327,10 @@ class Emf2():
 	def inv_park(self):
 		for i in range(0,800):
 			angle=i*m.pi/200
-			h1_angle=5*angle
-			y1b=self.d1_av[i]*m.cos(angle)    - self.q1_av[i]*m.sin(angle)  ## alpha and beta for H1 and h5 are swaped????????????
-			y1a=self.d1_av[i]*m.sin(angle)    + self.q1_av[i]*m.cos(angle)
+			theta=angle # -90degree from stator vector to make Id=0
+			h1_angle=5*theta
+			y1b=self.d1_av[i]*m.cos(theta)    - self.q1_av[i]*m.sin(theta)  ## alpha and beta for H1 and h5 are swaped????????????
+			y1a=self.d1_av[i]*m.sin(theta)    + self.q1_av[i]*m.cos(theta)
 			y5a=self.d5[i]   *m.cos(h1_angle) - self.q5[i]   *m.sin(h1_angle)
 			y5b=self.d5[i]   *m.sin(h1_angle) + self.q5[i]   *m.cos(h1_angle)
 			self.calc_ya[i]=(y1a+y5a)
@@ -429,6 +424,18 @@ class Fixed:
 		plt.plot(x,y_sin,y_cos)
 		plt.show()
 
+	def do_sin_table_ready(self,Iq=1024,factor=0.15):
+		#this function create 256 element in16_t table ready to use for firmware in performas normalization of factor 0.15
+		# assumption is that Iq=1024
+		# Icomp = 0.15*Iq*sin(alpha)
+		x = range(0,256)
+		sin_table_ready=range(0,256)
+		for i in range(0,256):
+			sin_table_ready[i]=int (1024*0.15*m.sin(2*m.pi*i/256))
+		print sin_table_ready
+		plt.plot(x,sin_table_ready)
+		plt.show()
+
 	
 class Emf:
 	Count = 0   # This represents the count of objects of this class
@@ -497,5 +504,49 @@ class Emf:
 		#plt.title('Bafang BackEMF scope waveform')
 		#plt.legend(('D','Q'),loc='upper right')
 		#plt.show()
+
+class Bafang():
+	def do_backEMF(self,a5=3,fi5=0.0):
+		xx=range(0,800)
+		y=range(0,800)
+		y11=range(0,800)
+		a7=0.5
+		fi7=0
+		a11=0.75
+		fi11=0
+		for i in range(0,800):
+			y[i]=30*m.sin(i*m.pi/200)+a5*m.sin(fi5 + 5*i*m.pi/200)+a7*m.sin(fi7 + 7*i*m.pi/200)+a11*m.sin(fi11 + 11*i*m.pi/200)
+			y11[i]=30*m.sin(i*m.pi/200)
+		plt.plot(xx,y)
+		plt.title('Simulatte BackEMF Bafang')
+		plt.show()
+
+	def try_flux(self,h_nr=10,a_harm_m=0.3,fi10=0.0):
+		xx=range(0,800)
+		y=range(0,800)
+		y11=range(0,800)
+		for i in range(0,800):
+			a_harm=a_harm_m*m.sin(i*m.pi/200)**2
+			y[i]=m.sin(i*m.pi/200)+a_harm*m.sin(fi10 + h_nr*i*m.pi/200)
+			y11[i]=m.sin(i*m.pi/200)
+		plt.plot(xx,y)
+		plt.title('Simulatte Bafang Flux ')
+		plt.show()
+
+	def calc_flux(self,Omega=1):
+		#this function usee backEMF as given by Bafang. 
+		# The backEMF given by Bafang matches closely my measurements
+		# Flux(t) = Integral (BackEMF(t))dT
+		# BackEMF from Bafang document == My Mesaured BackEMF - seems to be correct
+		# BackEMF = 29*sin(Omega*t) + 3*sin(5*Omega*t) + 0.5*sin(7*Omega*t) + 0.75*sin(11*Omega*t)
+		# Flux(t) = Integral (BackEMF(t))dT
+		# Flux(t) = -1/Omega(29*cos(Omega*t) + 3/5*cos(5*Omega*t) + 0.5/7*cos(7*Omega*t) + 0.75/11*cos(11*Omega*t)
+		xx=range(0,800)
+		y=range(0,800)
+		for i in range(0,800):		
+			y[i]=-1/Omega*(29*m.cos(i*m.pi/200)+0.6*m.cos(5*i*m.pi/200)+0.072*m.cos(7*i*m.pi/200)+0.07*m.cos(11*i*m.pi/200))	
+		plt.plot(xx,y)
+		plt.title('Calculate Bafang Flux from given BackEMF')
+		plt.show()
 
 
