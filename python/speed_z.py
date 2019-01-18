@@ -6,6 +6,129 @@ from scipy import signal
 import math as m
 import csv
 
+
+class SpeedZ:
+	Count = 0   # This represents the count of objects of this class
+	def __init__(self):
+		SpeedZ.Count += 1
+		print SpeedZ.Count, 'Speed objects active'
+		print("init arg=",self)
+		self.gFname ='empty'
+		self.MAX_FILE_LEN = 950000
+		self.inc_dt      = range(0,self.MAX_FILE_LEN)
+		self.z_pulse     = range(0,self.MAX_FILE_LEN)
+		self.x           = range(0,self.MAX_FILE_LEN)
+
+	def __del__(self):
+	        Speed.Count -= 1
+        	if Speed.Count == 0:
+	            print 'Last Speed object deleted'
+	        else:
+	            print Speed.Count, 'Speed objects remaining'
+
+	def read_file(self,fname='/mnt/hgfs/vm_share/trace/S0_Index_6_7msec_6MHz.txt'):
+		i=0
+		self.gFname=fname
+		f = open (fname,"r")
+		for ln_str in f:
+			if ln_str.count(' ') == 2: 				# check for index pulse
+				# process index data
+				index_detected = True
+				self.z_pulse[i-14]=30000
+				position_str= ln_str[1:-6]
+				self.prev_position=int(position_str)
+				#keep previous displacement?
+				self.inc_dt[i-14]=self.inc_dt[i-15]
+			else: 
+				#remove header info from the first 13 lines
+				if i>13:
+					self.z_pulse[i-14]=0
+					position_str= ln_str[1:-4]
+					position = int(position_str)
+					if i>14:
+						self.inc_dt[i-14]=position-self.prev_position
+					self.prev_position=position
+				else:
+					self.prev_position = 0
+					position=0
+					self.inc_dt[i]=0		
+				if (i/1000.0) == int(i/1000):
+					print ("position=%d  dT/inc=%d ",position,self.inc_dt[i-14])
+			i=i+1
+		f.close()
+		self.TotalNrOfIncrements = i;
+		print ("read lines =",i)		
+		print("gFname=",self.gFname)
+		plt.plot (self.x[8000:i-600],self.inc_dt[8000:i-600] ,self.z_pulse[8000:i-600])
+		plt.legend(('dt/increment','Z'),loc='upper right')
+		plt.title('Speed vs time')
+		plt.show()
+
+	def do_avg2(self, n=20480, ts=0.1,order=6):
+		x=range(0,n)
+		y2=range(0,n)
+		y2_lpf=range(0,n)
+		z24 = range(0,n)
+		# averge from two samples
+		j=0
+		b_index=int(0.5*self.TotalNrOfIncrements)
+		for i in range(b_index,b_index+n,2):
+			y2[j]  = (self.inc_dt[i]+self.inc_dt[i+1])*0.5
+			y2[j+1]= y2[j]
+			j=j+2
+		#show fft
+		self.do_fft(y2)
+		#create z24 signal
+		z_pulse_index=0
+		j=0
+		for i in range(b_index,b_index+n):
+			z24[j]=0
+			if self.z_pulse[i] > 0 : #detect the index pulse
+				z_pulse_index=i
+				harmonic=1
+			if (z_pulse_index > 0) and (abs((i-z_pulse_index)-int(1024.0/24.0*harmonic))<1):
+				harmonic=harmonic+1
+				z24[j]= 30000
+			j=j+1
+		#design lpf filter
+		b,a = butter (order,ts, 'low', False)
+		y2_lpf = lfilter(b, a, y2)
+		#plot
+		plt.legend(('dt/increment','Z','Z24'),loc='upper right')
+		plt.title('dT/inc filtered vs increments')
+		plt.plot(x,y2_lpf,x,self.z_pulse[b_index:b_index+n]) # ,x,z24)
+		plt.show()
+		#show filtered fft
+		self.do_fft(y2_lpf)
+		
+	def do_lpf(self,ts=0.1,order=4,w0=1.0/512,Q=5):
+		disp_lpf       = range(0,self.TotalNrOfIncrements)
+		disp_lpf_notch = range(0,self.TotalNrOfIncrements)
+		#design lpf filter
+		b,a = butter (order,ts, 'low', False)
+		disp_lpf = lfilter(b, a, self.inc_dt)
+		# add notch filer - remove encoder misalignment
+		b_notch, a_notch = signal.iirnotch(w0, Q)
+		disp_lpf_notch=lfilter(b_notch, a_notch, disp_lpf)
+		#plot graph
+		begin_index=50
+		end_index= self.TotalNrOfIncrements-1000		
+		#plt.plot(self.x[50:self.TotalNrOfIncrements-1000],disp_lpf[50:self.TotalNrOfIncrements-1000], disp_lpf_notch[50:self.TotalNrOfIncrements-1000])
+		plt.plot(self.x[begin_index:end_index], disp_lpf_notch[begin_index:end_index],self.z_pulse[begin_index:end_index])
+		plt.title('Velocity ripple vs time '+self.gFname)
+		plt.xlabel ('Increments')
+		plt.ylabel ('Speed')
+		plt.show()
+
+	def do_fft(self,y=[],n=1024,offset=300):
+		f=range(0,n)
+		f_cpx= np.fft.fft(y[offset:offset+n])
+		plt.plot(f,f_cpx.real,f_cpx.imag)
+		plt.title('Velocity ripple spectrum '+self.gFname)
+		plt.show()
+
+
+
 class Speed:
 	Count = 0   # This represents the count of objects of this class
 	def __init__(self):
