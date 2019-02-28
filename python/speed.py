@@ -2,6 +2,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import butter, lfilter
 from scipy import signal
+#next two imports are needed for chebishev and cauer optimal filter design
+from scipy.signal import fir_filter_design as ffd
+from scipy.signal import filter_design as ifd
+
 
 import math as m
 import csv
@@ -13,7 +17,7 @@ class Speed:
 		print Speed.Count, 'Speed objects active'
 		print("init arg=",self)
 		self.gFname ='empty'
-		self.MAX_FILE_LEN = 950000
+		self.MAX_FILE_LEN = 1150000
 		self.displacement= range(0,self.MAX_FILE_LEN)
 		self.position    = range(0,self.MAX_FILE_LEN)
 		self.x           = range(0,self.MAX_FILE_LEN)
@@ -30,18 +34,19 @@ class Speed:
 		self.gFname=fname
 		f = open (fname,"r")
 		for ln_str in f:
-			#remove header info from the first 13 lines
-			if i>13:
-				position_str= ln_str[1:-4]
-				self.position[i-13] = int(position_str)
-				if i>14:
-					self.displacement[i-14]=(self.position[i-13]-self.position[i-14])
-			else:
-				self.position[i] = 0
-				self.displacement[i]=0		
-			if (i/1000.0) == int(i/1000):
-				print ("position=%d  displacement=%d ",self.position[i-13],self.displacement[i-14])
-			i=i+1
+			if i< self.MAX_FILE_LEN: # Skip last file lines. For overflow protection
+				#remove header info from the first 13 lines
+				if i>13:
+					position_str= ln_str[1:-4]
+					self.position[i-13] = int(position_str)
+					if i>14:
+						self.displacement[i-14]=(self.position[i-13]-self.position[i-14])
+				else:
+					self.position[i] = 0
+					self.displacement[i]=0		
+				if (i/1000.0) == int(i/1000):
+					print ("position=%d  displacement=%d ",self.position[i-13],self.displacement[i-14])
+				i=i+1
 		f.close()
 		self.TotalNrOfIncrements = i;
 		print ("read lines =",i)		
@@ -55,18 +60,30 @@ class Speed:
 		f=range(0,n)
 		f_cpx= np.fft.fft(self.displacement[offset:offset+n])
 		## workaaround to filter low freq . Please remove it. Used for presentation to bafang
-		for i in range (0,10):
-			f_cpx.real[i]=0.0
-			f_cpx.imag[i]=0.0
-		for i in range (10,240):
-			f_cpx.real[i]= f_cpx.real[i]/50.0
-			f_cpx.imag[i]= f_cpx.imag[i]/50.0
+		#for i in range (0,10):
+		#	f_cpx.real[i]=0.0
+		#	f_cpx.imag[i]=0.0
+		#for i in range (10,240):
+		#	f_cpx.real[i]= f_cpx.real[i]/50.0
+		#	f_cpx.imag[i]= f_cpx.imag[i]/50.0
 		#end workaround 
+		plt.legend(('real','img'),loc='upper right')
 		plt.plot(f,f_cpx.real,f_cpx.imag)
 		plt.title('Velocity ripple spectrum '+self.gFname)
 		plt.show()
 
-	def do_lpf(self,ts=0.1,order=4,w0=1.0/512,Q=5):
+	def do_fftr(self,n=65536,offset=100000):
+		f=range(0,n)
+		amplitude = range(0,n)
+		f_cpx= np.fft.fft(self.displacement[offset:offset+n])
+		for i in range (0,n):
+			amplitude[i] = (f_cpx.real[i]*f_cpx.real[i]+f_cpx.imag[i]*f_cpx.imag[i])**0.5
+			f[i]=f[i]   # *1024/n  # we have 1024 increments/rev - we use only S0 singal of 2048in/rev encoder
+		plt.plot(f,amplitude)
+		plt.title('Velocity ripple spectrum Amplitude'+self.gFname)
+		plt.show()
+
+	def do_lpf(self,ts=0.1,order=4,w0=1.0/512,Q=15):
 		disp_lpf       = range(0,self.TotalNrOfIncrements)
 		disp_lpf_notch = range(0,self.TotalNrOfIncrements)
 		#design lpf filter
@@ -75,13 +92,74 @@ class Speed:
 		# add notch filer - remove encoder misalignment
 		b_notch, a_notch = signal.iirnotch(w0, Q)
 		disp_lpf_notch=lfilter(b_notch, a_notch, disp_lpf)
-		#plot graph		
-		#plt.plot(self.x[50:self.TotalNrOfIncrements-1000],disp_lpf[50:self.TotalNrOfIncrements-1000], disp_lpf_notch[50:self.TotalNrOfIncrements-1000])
-		plt.plot(self.x[50:self.TotalNrOfIncrements-1000], disp_lpf_notch[50:self.TotalNrOfIncrements-1000])
+		#plot graph
+		plt.grid(which='both',axis='both')		
+		plt.plot(self.x[50:self.TotalNrOfIncrements-1000],disp_lpf[50:self.TotalNrOfIncrements-1000], disp_lpf_notch[50:self.TotalNrOfIncrements-1000])
+		#plt.plot(self.x[50:self.TotalNrOfIncrements-1000], disp_lpf_notch[50:self.TotalNrOfIncrements-1000])
+		plt.legend(('lpf','lpf_notch'),loc='upper right')
 		plt.title('Velocity ripple vs time '+self.gFname)
 		plt.xlabel ('Increments')
 		plt.ylabel ('Speed')
 		plt.show()
+
+	def do_filter(self,ts=1.0/30.0,order=6,max_deviation=6000):
+		x=range(0,self.MAX_FILE_LEN)
+		y2=range(0,self.MAX_FILE_LEN)
+		y2_lpf=range(0,self.MAX_FILE_LEN)
+		y2=self.displacement
+		#do selective average 2 filter
+		for i in range (0, self.MAX_FILE_LEN-4):	
+			if abs(y2[i+1] - y2[i]) > max_deviation: #bigger than 5usec
+				y2[i]  = (y2[i]+y2[i+1])/2
+				y2[i+1]= (y2[i]+y2[i+1])/2
+		#design lpf filter
+		b,a = butter (order,ts, 'low', False)
+		y2_lpf = lfilter(b, a, y2)
+		#***************************
+		#* design chebishev filter *
+		#***************************
+		# remez (fir) design arguements
+		#Fpass = 10e6    # passband edge
+		#Fstop = 11.1e6  # stopband edge, transition band 100kHz
+		Wp = ts/2    	# pass normalized frequency=Fpass/(Fs)
+		Ws = Wp *3.0   	# stop normalized frequency
+		# iirdesign agruements
+		Wip = 2*Wp 	# (Fpass)/(Fs/2)
+		Wis = 2*Ws 	# (Fstop+1e6)/(Fs/2)
+		Rp = 1          # passband ripple
+		As = 120        # stopband attenuation
+		# Create a FIR filter, the remez function takes a list of 
+		# "bands" and the amplitude for each band.
+		taps = 256 # was in example 4096, works good with 256
+		br = ffd.remez(taps, [0, Wp, Ws, .5], [1,0], maxiter=100000) 
+		print ('Remez out=',br)
+		# The iirdesign takes passband, stopband, passband ripple, 
+		# and stop attenuation.
+		bc, ac = ifd.iirdesign(Wip, Wis, Rp, As, ftype='ellip')  
+		bb, ab = ifd.iirdesign(Wip, Wis, Rp, As, ftype='cheby2')
+		print ("Bc=", bc)
+		print ("Ac=", ac)
+		print ("Bb=", bb)
+		print ("Ab=", ab)
+		yc=signal.filtfilt(bc,ac,y2)
+		yb=signal.filtfilt(bb,ab,y2)
+		b_ind = 100000 #begin of plot index
+		e_ind =-5000  #end offset
+		plt.xlabel ('Inc')
+		plt.ylabel ('ns/inc')
+		plt.grid(which='both',axis='both')
+		plt.plot(x[b_ind:e_ind], y2_lpf[b_ind:e_ind], x[b_ind:e_ind], yc[b_ind:e_ind] ,x[b_ind:e_ind],yb[b_ind:e_ind])
+		plt.legend(('lpf','ele','che'),loc='upper right')
+		plt.title('Velocity ripple filtered '+self.gFname)
+		plt.show()
+		#second plot is only filtered
+		plt.grid(which='both',axis='both')
+		plt.plot(x[b_ind:e_ind],yc[b_ind:e_ind])
+		plt.title('Velocity ripple filtered '+self.gFname)
+		plt.show()
+		print ("yc[200000:200010]=",yc[200000:200010])
+		print ("yb[200000:200010]=",yb[200000:200010])
+
 
 	def diplacement_to_speed(self):
 		#create position sector every 10usec
@@ -241,7 +319,8 @@ class Emf2():
 	def __init__(self):
 		# init static vars
 		self.xx=range(0,800)
-		#inlut signals time domain
+		#input signals time domain
+		self.ia_ref=range(0,800)
 		self.ia=range(0,800)
 		self.ib=range(0,800)
 		self.ic=range(0,800)
@@ -272,6 +351,8 @@ class Emf2():
 		for i in range(0,800):
 			angle=i*m.pi/200
 			h1_angle=5*angle
+			#create reference signal - only fundamental
+			self.ia_ref[i]=1.0*m.cos(angle+offset)
 			# create 3 phases Ia,Ib,Ic signals
 			self.ia[i] = 1.0*m.cos(angle+offset)+0.07*m.cos(h1_angle+5*offset)
 			self.ic[i] = 1.0*m.cos(angle+2*m.pi/3+offset)+0.07*m.cos(h1_angle+10*m.pi/3+5*offset)
@@ -361,6 +442,18 @@ class Emf2():
 		plt.plot(self.xx,self.ia,self.xx,self.calc_ia)
 		plt.title('Test graph whole tranformation')
 		plt.legend(('Ia','Ia_calc'),loc='upper right')
+		plt.show()
+
+	def test2(self,offset=0,d5_attn=0.0,q5_attn=1.0): # test signal with zero Iq6-th harm
+		self.clark(offset)
+		for i in range(0,800): # attenuate d and q 5-th harmomics
+			self.d5[i]= self.d5[i] * d5_attn
+			self.q5[i]= self.q5[i] * q5_attn
+		self.inv_park()
+		self.inv_clark()
+		plt.plot(self.xx,self.ia,self.xx,self.calc_ia,self.xx,self.ia_ref)
+		plt.title('Test graph whole tranformation')
+		plt.legend(('Ia','Ia_calc',"IaCos"),loc='upper right')
 		plt.show()
 
 class Fixed:
@@ -601,5 +694,132 @@ class Bafang():
 		plt.plot(xx,y)
 		plt.title('Calculate Bafang Flux from given BackEMF')
 		plt.show()
+class Dq():
+	Count = 0   # This represents the count of objects of this class
+	def __init__(self):
+		Dq.Count += 1
+		print Dq.Count, 'Dq objects active'
+		print("init arg=",self)
+		self.len = 800
+		self.Ia  = range (0,self.len)    # one period of current wave
+		self.Ib  = range (0,self.len)
+		self.Ic  = range (0,self.len)
+		self.Ialpha = range (0,self.len) # Aplha beta currents
+		self.Ibeta  = range (0,self.len)
+		self.Igama  = range (0,self.len)
+		self.Id  = range (0,self.len)    # DQ
+		self.Iq  = range (0,self.len)
+		self.Ialpha_inv = range (0,self.len) # Inverse transformation varibales
+		self.Ibeta_inv  = range (0,self.len)
+		self.Ia_inv  = range (0,self.len)    # one period of current wave
+		self.Ib_inv  = range (0,self.len)
+		self.Ic_inv  = range (0,self.len)
+		self.t   = range (0,self.len) # time axis
+
+	def create(self,h5=0.05,h7=0.0,h11=0.0):
+		for i in range(0,self.len):		
+			self.Ia[i]=m.cos(i*m.pi/200         )+h5*m.cos(5*i*m.pi/200          )+h7*m.cos(7*i*m.pi/200          )+h11*m.cos(11*i*m.pi/200          )
+			self.Ic[i]=m.cos(i*m.pi/200+2*m.pi/3)+h5*m.cos(5*i*m.pi/200+10*m.pi/3)+h7*m.cos(7*i*m.pi/200+14*m.pi/3)+h11*m.cos(11*i*m.pi/200+22*m.pi/3)
+			self.Ib[i]=m.cos(i*m.pi/200+4*m.pi/3)+h5*m.cos(5*i*m.pi/200+20*m.pi/3)+h7*m.cos(7*i*m.pi/200+28*m.pi/3)+h11*m.cos(11*i*m.pi/200+44*m.pi/3)
+		#show input signals abc frame
+		plt.plot(self.t,self.Ia,self.t,self.Ib,self.t,self.Ic)
+		plt.title('Original singals abc frame')
+		plt.legend(('Ia','Ib','Ic'),loc='upper right')
+		plt.show()
+		#convert to alpha beta
+		#park matrix
+		#T=[[2.0/3.0,-1.0/3.0,-1.0/3.0],[0,1.0/m.sqrt(3.0),-1.0/m.sqrt(3.0)],[1.0/3.0,1.0/3.0,1.0/3.0]] # from wikipedia
+		T=[[1.0,0,0],[1.0/m.sqrt(3),2.0/m.sqrt(3),0],[0,0,0]] # from arm lib
+		for i in range(0,self.len):
+			self.Ialpha[i] = T[0][0]*self.Ia[i]+T[0][1]*self.Ib[i]+T[0][2]*self.Ic[i] # y coordinate stator
+			self.Ibeta[i]  = T[1][0]*self.Ia[i]+T[1][1]*self.Ib[i]+T[1][2]*self.Ic[i] # x coordinate stator
+			self.Igama[i]  = T[2][0]*self.Ia[i]+T[2][1]*self.Ib[i]+T[2][2]*self.Ic[i]
+		# show alpha beta frame
+		plt.plot(self.t,self.Ialpha, self.t,self.Ibeta, self.t,self.Igama)
+		plt.title('Alpha transformation with 5-th,7-th and 11-th harmonics')
+		plt.legend(('Alpha','Beta','Gama'),loc='upper right')
+		plt.show()
+		#go to DQ
+		Id_av_sum=0.0
+		Iq_av_sum=0.0
+		for i in range(0,self.len):
+			stator_angle=i*m.pi/200
+			theta=stator_angle - m.pi/2.0- 0*m.pi/2
+			#real park
+			self.Id[i] =  self.Ialpha[i]*m.cos(theta) + self.Ibeta[i]*m.sin(theta) 
+			self.Iq[i] = -self.Ialpha[i]*m.sin(theta) + self.Ibeta[i]*m.cos(theta)
+			Id_av_sum+=self.Id[i]
+			Iq_av_sum+=self.Iq[i]
+		self.Id_av=Id_av_sum/self.len
+		self.Iq_av=Iq_av_sum/self.len
+		# show DQ frame
+		plt.plot(self.t,self.Id, self.t,self.Iq)
+		plt.title('DQ transformation with 5-th,7-th and 11-th harmonics')
+		plt.legend(('Id','Iq'),loc='upper right')
+		plt.show()
+
+	def inv_park(self):
+		for i in range(0,self.len):
+			angle=i*m.pi/200
+			theta=angle # -90degree from stator vector to make Id=0
+			self.Ibeta_inv[i] =self.Id[i]*m.cos(theta)    - self.Iq[i]*m.sin(theta)  ## alpha and beta for H1 and h5 are swaped????????????
+			self.Ialpha_inv[i]=self.Id[i]*m.sin(theta)    + self.Iq[i]*m.cos(theta)
+		plt.plot(self.t,self.Ialpha_inv,self.t,self.Ibeta_inv)
+		plt.title('DQ Inverse transformation test with 5-th,7-th and 11-th harmonics')
+		plt.legend(('Alpha','Beta'),loc='upper right')
+		plt.show()
+
+	def inv_clark(self):
+		T=[[1.0,0.0,1.0],[-0.5,m.sqrt(3)/2,1.0],[-0.5,-m.sqrt(3)/2,1.0]]#from wikipedia
+		for i in range(0,800):
+			self.Ia_inv[i]=T[0][0]*self.Ialpha_inv[i] + T[0][1]*self.Ibeta_inv[i] #gamma is zero  
+			self.Ib_inv[i]=T[1][0]*self.Ialpha_inv[i] + T[1][1]*self.Ibeta_inv[i] #gamma is zero
+			self.Ic_inv[i]=T[2][0]*self.Ialpha_inv[i] + T[2][1]*self.Ibeta_inv[i] #gamma is zero
+		#plot
+		plt.plot(self.t,self.Ia_inv,self.t,self.Ib_inv,self.t,self.Ic_inv)
+		plt.title('Inverse clark with 5-th 7-th and 11-th harmonics')
+		plt.legend(('Ia','Ib','Ic'),loc='upper right')
+		plt.show()
+
+	def test(self,Iq_attn=1.0,Id_attn=1.0):	
+		self.create()
+		Ia_perfect=range(0,self.len)
+		y=0.0
+		#attenuate harmonics
+		for i in range(0,self.len):
+			self.Id[i]=self.Id[i] -(1-Id_attn)*(self.Id[i]-self.Id_av)
+			self.Iq[i]=self.Iq[i] -(1-Iq_attn)*(self.Iq[i]-self.Iq_av)
+			Ia_perfect[i]=m.cos(i*m.pi/200 )
+		self.inv_park()
+		self.inv_clark()
+		#plot before and after
+		plt.plot(self.t,self.Ia,self.t,self.Ia_inv,self.t,Ia_perfect)
+		plt.title('Inverse clark with 5-th 7-th and 11-th harmonics')
+		plt.legend(('Ia','Ia_inv','Cos'),loc='upper right')
+		plt.show()
+
+	def __del__(self):
+	        Dq.Count -= 1
+        	if Dq.Count == 0:
+	            print 'Last DQ object deleted'
+	        else:
+	            print Dq.Count, 'DQ objects remaining'
+
+
+
+class Cor():
+	def tst(self,Q=10,f0=30,fs=40000):
+		x=range (0,fs)
+		y=range (0,fs)
+		y_out=range (0,fs)
+		for i in range (0,fs):
+			y[i]=1.0*m.sin(2*m.pi*i*50/fs) +0.2*m.sin(2*m.pi*i*30/fs)
+		b, a = signal.iirpeak(f0/fs,Q)   # normallized frequency f0/f_sample
+		y_out = lfilter(b, a, y)
+		plt.plot(x,y,y_out)
+		plt.title('Resonant Filter')
+		plt.show()
+
+	
 
 

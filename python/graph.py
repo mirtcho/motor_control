@@ -3,6 +3,7 @@ import numpy as np
 from scipy.signal import butter, lfilter
 from scipy import signal
 
+import sys
 import math as m
 
 class RMS:
@@ -165,4 +166,30 @@ class Emf:
 		plt.legend(('EMF','FluxLnk'),loc='upper right')
 		plt.plot(x,emf,flux_link)
 		plt.show()
-	
+
+class Cogging:
+	def vq_ff(self):
+		x=range (0,256)
+		yi=range (0,256)
+		yu=range(0,256)
+		for i in range (0,256):
+			yi[i]=0
+			yu[i]=0
+		j=0
+		for i in range (51,204):
+			yi[i]=127*m.sin(2*m.pi*j/153.6)
+			yu[i]=127*m.cos(2*m.pi*j/153.6)
+			j=j+1
+		plt.title ("Bafang anti cogging Feed forward  Iq_FF and Vq_FF")
+		plt.legend(('Iq_FF','Vq_FF'),loc='upper right')
+		plt.plot(x,yi,yu)
+		plt.show()
+		for i in range (0,15):
+			for j in range (0,15):
+				#print ',',hex(int(yu[16*i+j])));
+				sys.stdout.write(',')
+				s=str(int(yu[16*i+j]))
+				sys.stdout.write(s)
+			print ""
+ 
+
