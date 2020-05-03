@@ -193,7 +193,7 @@ def c_sin3():
 		d_theta_int16_256[ 127 ] = 0
 		d_theta_int16_256[i_256] = int(d_theta_256[i_256]*32768/m.pi)   # +pi=7fff -pi=0x8000
 
-	print d_theta_int16_256
+	print (d_theta_int16_256)
 	#plt.plot (x,y_sum)
 	#plt.plot(x,corr_theta,normal_theta)
 	#plt.plot(x,corr_theta,d_theta)
@@ -210,8 +210,8 @@ def c_sin3():
 def c_cor():
 	x=[36.22,38.62   ,   45.6,  51.16, 60.44 , 69.38 ,  76.8  , 90.0]
 	y=[0.0  ,-0.72383,-2.43418,-3.668,-5.9425,-1.8744,-1.20737, 0 ]
-	print x
-	print y
+	print (x)
+	print (y)
 	plt.plot (x,y)
 	plt.title('correction curve from excel')
 	plt.show()
