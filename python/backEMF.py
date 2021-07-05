@@ -4,6 +4,7 @@ from scipy.signal import butter, lfilter
 from scipy import signal
 
 import math as m
+import csv
 
 Lq = 0.665
 Ld = 0.397
@@ -16,7 +17,86 @@ def plot_graph():
 	y = np.sin(x)
 	plt.plot(x, y)
 	plt.show()
+	
+def plot_theta():
+	plt.figure()
+	x = np.arange(0, 6.28, 0.1)
+	y_alpha = np.sin(x)+0.14*np.sin(5*x)
+	y_beta = np.cos(x)+0.14*np.cos(5*x)
+	y_theta = np.arctan(y_alpha/y_beta)
+	plt.plot(x, y_alpha,x,y_theta)
+	plt.show()
+	y_a = np.sin(x)
+	y_b = np.cos(x)
+	y_th= np.arctan(y_a/y_b)
+	y_dTh=y_theta-y_th
+	#plt.plot(x, y_th,x,y_dTh)
+	plt.plot(x, y_th,x,y_dTh)
+	plt.show()
+	
+def create_cor_table():
+	x = np.arange(0, 6.28, 6.28/256)
+	y = 0.14*2147483647*np.sin(5*x)
+	y_cor = y.astype(int)
+	print (y_cor)
+	
+def read_csv():
+	#read yokogawa csv file - two channels ch1=smo.thetaFinal    ch2=ideal theta-zaagtand
+	x         = range (0,25100)
+	smo_theta = list(range (0,25100))
+	lin_theta = list(range (0,25100))
+	sample_nr = 0
+	with open('000.csv') as csv_file:
+	
+		csv_reader = csv.reader(csv_file, delimiter=',')		
+		line_count = 0
+		for row in csv_reader:
+			if line_count == 5:
+				print(f'Column names are {", ".join(row)}')
+				line_count += 1
+			else:
+				if line_count >= 17:
+					#process data
+ 					print(f'\t{row[0]} Ch1 {row[1]} Ch2 {row[2]}.') 					
+ 					smo_theta[sample_nr] = float(row[1])
+ 					lin_theta[sample_nr] = float(row[2])
+ 					line_count += 1
+ 					sample_nr  += 1
+				else:
+ 					#skip lines
+ 					line_count += 1
+			print(f'Processed {line_count} lines.')
+	#process data 1.Filter 2. calculate difference
+	sample_nr -= 1;
+	smo_theta_lpf = list(range (0,sample_nr))
+	lin_theta_lpf = list(range (0,sample_nr))
+	cor_theta_lpf = list(range (0,sample_nr))
+	lpf_factor=0.01
+	for i in range (1,sample_nr):
+		smo_theta_lpf[i] = smo_theta_lpf[i-1]+lpf_factor*(smo_theta[i] - smo_theta_lpf[i-1])
+		lin_theta_lpf[i] = lin_theta_lpf[i-1]+lpf_factor*(lin_theta[i] - lin_theta_lpf[i-1])
+		cor_theta_lpf[i] = smo_theta_lpf[i]-lin_theta_lpf[i]
+		#print (i,smo_theta[i],smo_theta_lpf[i])
+	#subsample data from 1 period to 256 samples
+	plt.plot (x[:sample_nr],smo_theta[:sample_nr],x[:sample_nr],lin_theta[:sample_nr])
+	plt.legend(('smo','lin'),loc='upper right')
+	plt.title('Scope meausered Theta DebugDAC')
+	plt.show()
+	#lpf plot
+	plt.plot (x[:sample_nr-94],smo_theta_lpf[94:sample_nr],x[:sample_nr-94],lin_theta_lpf[:sample_nr-94])
+	plt.legend(('smo','lin'),loc='upper right')
+	plt.title('Scope LPF processed data')
+	plt.show()
+	#corection theta claculation
+	for i in range (1,sample_nr-94):
+		cor_theta_lpf[i] = smo_theta_lpf[i+94]-lin_theta_lpf[i]	
+	plt.plot (x[:sample_nr-94],cor_theta_lpf[:sample_nr-94])
+	plt.legend(('cor'),loc='upper right')
+	plt.title('Scope LPF theta correction ')
+	plt.show()
+	
 
+		
 def create():
 	x      = range(0,20000)
 	y_q    = range(0,20000)
