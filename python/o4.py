@@ -34,6 +34,7 @@ class O4:
 		self.IOb		= list(range (0,self.TOTAL_SAMPLES))
 		self.IOc		= list(range (0,self.TOTAL_SAMPLES))
 		self.sector		= list(range (0,self.TOTAL_SAMPLES))
+		self.max		= list(range (0,self.TOTAL_SAMPLES))
 		
 	def __del__(self):
 	        O4.Count -= 1
@@ -42,20 +43,38 @@ class O4:
 	        else:
 	            print (O4.Count, 'O4 objects remaining')
 
-	def arm_inv_clarke (self,Ialpha,Ibeta):
+	def arm_clarke_q31(self,Ia,Ib,Ic):
+		Ialpha=Ia
+		#Ibeta= 0x24F34E8B*Ia/2^30+0x49E69D16*Ib/2^30
+		#ibeta = Ia/sqrt(3)+2*Ib/sqrt(3)		
+		#Ibeta= 0.57735026*Ia+1.154700538*Ib
+		Ibeta=(Ib-Ic)/m.sqrt(3)
+		return Ialpha,Ibeta
+	
+	def arm_park_q31(self,Ialpha,Ibeta,sinVal,cosVal):
+		Id=Ialpha*cosVal+Ibeta*sinVal
+		Iq=Ibeta*cosVal-Ialpha*sinVal
+		return Id,Iq
+
+	def arm_inv_park_q31(self, Id, Iq, sinVal, cosVal):
+		Ialpha=Id*cosVal-Iq*sinVal
+		Ibeta =Id*sinVal+Iq*cosVal		
+		return Ialpha,Ibeta
+
+	def arm_inv_clarke_q31 (self,Ialpha,Ibeta):
 		Ia=Ialpha
-		Ib=Ibeta*m.sqrt(3)/2.0 - Ialpha*0.5
+		Ib=Ibeta*m.sqrt(3)/2.0 - Ialpha*0.5		
 		return (Ia,Ib)
 		
 	def modif_inv_clarke(self,Ialpha,Ibeta):
 		#(Ib,Ia)=self.arm_inv_clarke(Ibeta,Ialpha) #swaped alpha,beta & Ia,Ib
-		(Ia,Ib)=self.arm_inv_clarke(Ialpha,Ibeta) #not modified
+		(Ia,Ib)=self.arm_inv_clarke_q31(Ialpha,Ibeta) #not modified
 		Ic=-(Ia+Ib)
 		return Ia,Ib,Ic
 
 	def CalcTimes(self,T1,T2):
 		PWM_PERIOD_LIMIT=1 #5325 at O4 since it controlls dierct PWM timer
-		Tc=PWM_PERIOD_LIMIT-(T1+T2)
+		Tc=(PWM_PERIOD_LIMIT-(T1+T2))/2
 		Tb=Tc+T1
 		Ta=Tb+T2
 		#invert
@@ -96,47 +115,68 @@ class O4:
 		
 	def SVM_new(self,ia,ib,ic):
 		#https://www.embedded.com/painless-mcu-implementation-of-space-vector-modulation-for-electric-motor-systems/
-		#find max
+		# scale to 2/3 instead of 1/sqrt(3)
+		ia=0.577350269*ia
+		ib=0.577350269*ib
+		ic=0.577350269*ic
+		#find max		
 		if (ia>=ib) and (ia>=ic):
-				max=ia
-		if (ib>ia) and (ib>ic):
-				max=ib
-		if (ic>ia) and (ic>ia):
+			max=ia
+		if (ib>=ia) and (ib>=ic):
+			max=ib
+		if (ic>=ia) and (ic>=ib):
 			max=ic
 		#min		
 		if (ia<=ib) and (ia<=ic):
 			min=ia
-		if (ib<ia) and (ib<ic):
+		if (ib<=ia) and (ib<=ic):
 			min=ib
-		if (ic<ia) and (ic<ib):
+		if (ic<=ia) and (ic<=ib):
 			min=ic
 		Neutral=(max+min)/2.0	
-		I1=ia-Neutral
-		I2=ib-Neutral
-		I3=ic-Neutral
-		return I1,I2,I3,Neutral
+		I1=ia-Neutral+0.5
+		I2=ib-Neutral+0.5
+		I3=ic-Neutral+0.5
+		return I1,I2,I3,min,max
 
+	def create_fw(self):
+		for i in range(0,self.TOTAL_SAMPLES):
+			self.Theta[i] =i*2*m.pi/self.TOTAL_SAMPLES
+			self.Ia[i] = m.cos(self.Theta[i])
+			self.Ib[i] = m.cos(self.Theta[i]+2*m.pi/3.0)
+			self.Ic[i] = m.cos(self.Theta[i]+4*m.pi/3.0)			
+			self.Ialpha[i], self.Ibeta[i] = self.arm_clarke_q31(self.Ia[i],self.Ib[i],self.Ic[i])
+			#1. swap alpha <-> beta
+			#2. Invert DQ polarity
+			#3 theta is shifted +60degree agains SMO
+			offset=m.pi/3
+			self.Iq[i],self.Id[i] = self.arm_park_q31 (self.Ibeta[i],self.Ialpha[i],m.sin(self.Theta[i]+offset),m.cos(self.Theta[i]+offset))
+			self.Id[i]=-self.Id[i]
+			self.Iq[i]=-self.Iq[i]
+			#inverse transformation
+			self.ISalpha[i], self.ISbeta[i] = self.arm_inv_park_q31(self.Id[i],self.Iq[i],m.sin(self.Theta[i]+offset),m.cos(self.Theta[i]+offset))
+			self.IS1[i], self.IS2[i], self.IS3[i]=self.modif_inv_clarke(self.ISalpha[i], self.ISbeta[i])			
+			#SVM
+			self.IOa[i], self.IOb[i], self.IOc[i], self.sector[i],self.max[i]=self.SVM_new(self.IS1[i], self.IS2[i], self.IS3[i])
+			
 	def create(self):
 		for i in range(0,self.TOTAL_SAMPLES):
 			self.Theta[i] =i*2*m.pi/self.TOTAL_SAMPLES
-			self.Ia[i] = m.sin(self.Theta[i])
-			self.Ib[i] = m.sin(self.Theta[i]+2*m.pi/3.0)
-			self.Ic[i] = m.sin(self.Theta[i]+4*m.pi/3.0)
-			#clarke as is from arm_math-> stm32 lib
-			self.Ialpha[i] = self.Ia[i];
-			self.Ibeta[i]  = self.Ia[i]/m.sqrt(3)+2*self.Ib[i]/m.sqrt(3)
-			#park stm32 - but inverted Theta to -Theta
-			#Theta=-Theta
-			self.Id[i] = self.Ialpha[i]*m.cos(self.Theta[i]) + self.Ibeta[i]*m.sin(self.Theta[i])
-			self.Iq[i] = self.Ibeta[i]*m.cos(self.Theta[i]) - self.Ialpha[i]*m.sin(self.Theta[i])
-			#inv park
-			self.ISalpha[i] = self.Id[i]*m.cos(self.Theta[i]) - self.Iq[i]*m.sin(self.Theta[i])
-			self.ISbeta[i] = self.Id[i]*m.sin(self.Theta[i]) + self.Iq[i]*m.cos(self.Theta[i])
-			#modified inf crake
+			self.Ia[i] = m.cos(self.Theta[i])
+			self.Ib[i] = m.cos(self.Theta[i]+2*m.pi/3.0)
+			self.Ic[i] = m.cos(self.Theta[i]+4*m.pi/3.0)
+			#transformations
+			self.Ialpha[i], self.Ibeta[i] = self.arm_clarke_q31(self.Ia[i],self.Ib[i],self.Ic[i])
+			self.Id[i],self.Iq[i] = self.arm_park_q31 (self.Ialpha[i],self.Ibeta[i],m.sin(self.Theta[i]),m.cos(self.Theta[i]))
+			#inverse transformations
+			#inverse outputs
+			self.ISalpha[i], self.ISbeta[i] = self.arm_inv_park_q31(self.Id[i],self.Iq[i],m.sin(self.Theta[i]),m.cos(self.Theta[i]))
+			self.ISalpha[i]=-1*self.ISalpha[i]
+			self.ISbeta[i] =-1*self.ISbeta[i]
 			self.IS1[i], self.IS2[i], self.IS3[i]=self.modif_inv_clarke(self.ISalpha[i], self.ISbeta[i])			
 			#SVM
-			self.IOa[i], self.IOb[i], self.IOc[i], self.sector[i]=self.SVM_new(self.IS1[i], self.IS2[i], self.IS3[i])
-
+			self.IOa[i], self.IOb[i], self.IOc[i], self.sector[i],self.max[i]=self.SVM_new(self.IS1[i], self.IS2[i], self.IS3[i])
+			
 	def pl(self):
 			plt.plot (self.Theta,self.Ia, self.Theta,self.Ib, self.Theta,self.Ic)
 			plt.legend(('abc'),loc='upper right')
@@ -163,7 +203,9 @@ class O4:
 			plt.title('Modified INV clarke outpur before SVM')
 			plt.show()			
 			#show modified inv clarke output
-			plt.plot (self.Theta,self.IOa, self.Theta,self.IOb, self.Theta,self.IOc,self.Theta,self.sector)
-			plt.legend(('abcs'),loc='upper right')
-			plt.title('SVM Outputs Ioa,Iob,Ioc and sector')
+			#plt.plot (self.Theta,self.IOa, self.Theta,self.IOb, self.Theta,self.IOc,self.Theta,self.sector,self.Theta,self.max) #min max
+			#plt.plot (self.Theta,self.IOa, self.Theta,self.IOb, self.Theta,self.IOc, self.Theta,self.sector)
+			plt.plot (self.Theta,self.IOa, self.Theta,self.IOb, self.Theta,self.IOc) # only ia,ib,ic
+			plt.legend(('abc'),loc='upper right')
+			plt.title('SVM Outputs Ioa,Iob,Ioc')
 			plt.show()			
