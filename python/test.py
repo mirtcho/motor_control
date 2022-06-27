@@ -7,13 +7,19 @@ import matplotlib.pyplot as plt
 class Test:
 	def __init__(self,ip='10.0.0.74'):
 		self.yokogawa = Yokogawa(ip)		
+		
 	def acq(self):
 		self.sample_time=float(self.yokogawa.request_xscale())*10/float(self.yokogawa.request_length())
 		self.motor_speed = []
+		self.motor_lpf_speed = []
 		self.t = []
-		print ('sample time =', self.sample_time )
+		#calculate speed LPF filter 
+		self.lpf_freq_hz=10000 #10KHz
+		sample_freq_hz=1/self.sample_time
+		self.lpf_freq_norm=self.lpf_freq_hz/sample_freq_hz
+		print ('sample time =', self.sample_time )		
 		start=1
-		stop=24999000
+		stop=24999000		
 		print ('Reading Channel 1 data from Yokogawa scope')
 		self.channel1_data = self.yokogawa.data_calc(1,start,stop)			#self.request_wave(1,start,stop)
 		print ('Reading Channel 2 data from Yokogawa scope')
@@ -34,13 +40,35 @@ class Test:
 	
 	def add_increment(self,sample_nr):
 		dT = (sample_nr-self.prev_sample)*self.sample_time		
-		if (sample_nr == self.prev_sample or dT==0):
-			self.current_speed = 100
+		if (sample_nr == self.prev_sample or dT<3e-6):
+			if (dT==0):
+				self.current_speed = 8000 #2000rpm mechanical
+			else:
+				#glitch skip it
+				self.nr_of_glitch+=1
+				return
 		else:
 			self.current_speed=60/(1024*dT)
 		self.prev_sample=sample_nr
+		#divide by 4 goto mechancal spead insted of electrical
+		self.current_speed = self.current_speed/4
 		
-	
+	def sub_increment(self,sample_nr):
+		dT = (sample_nr-self.prev_sample)*self.sample_time		
+		if (sample_nr == self.prev_sample or dT<3e-6):
+			if (dT==0):
+				self.current_speed = -8000 #2000rpm mechanical
+			else:
+				#glitch skip it
+				self.nr_of_glitch+=1
+				return
+		else:
+			self.current_speed=-60/(1024*dT)
+		self.prev_sample=sample_nr
+		#divide by 4 goto mechancal spead insted of electrical
+		self.current_speed = self.current_speed/4
+
+		
 	def process_encoder_increments(self):
 		#velocity is calculatied in motor rotot [rev/min]
 		# 1 rev =1024 increments
@@ -50,57 +78,63 @@ class Test:
 		# 2 step  V= 60/(1024*t)
 		self.inc_nr = 0
 		self.prev_sample = 0
+		self.current_speed = 0
 		enc_quadrant = 0
+		self.nr_of_glitch = 0
+		current_lpf_speed = 0		
 		#for i in range (int(float(self.yokogawa.request_length()))-100):
 		for i in range (int(len(self.channel1_data))):
 			ch1=self.channel1_data[i]
 			ch2=self.channel2_data[i]
-
+			TH_HIGH =1.8
+			TH_LOW = 0.6
 			if ( enc_quadrant==0):
 				#ch1&ch2 =0
-				if ch1>0.4 and ch2<0.4 :
+				if ch1>TH_HIGH and ch2<TH_LOW :
 					enc_quadrant=1
 					self.add_increment(i)
-				if ch1<0.4 and ch2>0.4 :
+				if ch1<TH_LOW and ch2>TH_HIGH :
 					enc_quadrant=3
-					self.add_increment(i)
-				if ch1>0.4 and ch2>0.4 :
-					enc_quadrant=2
-					self.add_increment(i)					
+					self.sub_increment(i)
+				#if ch1>TH_HIGH and ch2>TH_HIGH :
+				#	enc_quadrant=2
+				#	self.add_increment(i)					
 			elif( enc_quadrant == 1):
 				#ch1=5v ch2=0
-				if ch1>0.4 and ch2>0.4 :
+				if ch1>TH_HIGH and ch2>TH_HIGH :
 					enc_quadrant=2
 					self.add_increment(i)
-				if ch1<0.4 and ch2>0.4 :
-					enc_quadrant=3
-					self.add_increment(i)
-				if ch1<0.4 and ch2<0.4 :
+				#if ch1<TH_LOW and ch2>TH_HIGH :
+				#	enc_quadrant=3
+				#	self.add_increment(i)
+				if ch1<TH_LOW and ch2<TH_LOW :
 					enc_quadrant=0
-					self.add_increment(i)
+					self.sub_increment(i)
 			elif( enc_quadrant == 2):
 				#ch1=5v ch2=5v ToDo
-				if ch1>0.4 and ch2<0.4 :
+				if ch1>TH_HIGH and ch2<TH_LOW :
 					enc_quadrant=1
-					self.add_increment(i)
-				if ch1<0.4 and ch2>0.4 :
+					self.sub_increment(i)
+				if ch1<TH_LOW and ch2>TH_HIGH :
 					enc_quadrant=3
 					self.add_increment(i)
-				if ch1<0.4 and ch2<0.4 :
-					enc_quadrant=0
-					self.add_increment(i)
+				#if ch1<TH_LOW and ch2<0.4 :
+				#	enc_quadrant=0
+				#	self.add_increment(i)
 			elif( enc_quadrant == 3):
 				#ch1=0V ch2=5v ToDo
-				if ch1>0.4 and ch2<0.4 :
-					enc_quadrant=1
-					self.add_increment(i)
-				if ch1>0.4 and ch2>0.4 :
+				#if ch1>TH_HIGH and ch2<TH_LOW :
+				#	enc_quadrant=1
+				#	self.add_increment(i)
+				if ch1>TH_HIGH and ch2>TH_HIGH :
 					enc_quadrant=2
-					self.add_increment(i)
-				if ch1<0.4 and ch2<0.4 :
+					self.sub_increment(i)
+				if ch1<TH_LOW and ch2<TH_LOW :
 					enc_quadrant=0
 					self.add_increment(i)						
-			self.motor_speed.append(self.current_speed)
+			current_lpf_speed+=self.lpf_freq_norm*(self.current_speed-current_lpf_speed)
+			self.motor_speed.append    (self.current_speed)			
+			self.motor_lpf_speed.append(current_lpf_speed)
 			self.t.append(self.sample_time*i)
 			
 			
@@ -111,11 +145,17 @@ class Test:
 		self.process_encoder_increments()
 		# plot data 
 		fig, axs = plt.subplots(2, 1)
-		axs[0].plot(self.t, self.motor_speed, self.t, self.channel4_data)
+		axs[0].plot(self.t[5000:], self.motor_speed[5000:], self.t[5000:], self.motor_lpf_speed[5000:])
+		#axs[1].plot(self.t[5000:], self.channel3_data[5000:], self.t[5000:], self.channel4_data[5000:])
+		axs[1].plot(self.t[5000:], self.channel1_data[5000:],self.t[5000:], self.channel2_data[5000:],self.t[5000:], self.channel4_data[5000:])
 		#axs[0].set_xlim(0, 2)
-		axs[0].set_xlabel('time')
-		axs[0].set_ylabel('velocity and U_l1')
+		axs[0].set_xlabel('time[s]')
+		axs[0].set_ylabel('speed & speed_lpf[rpm]')
 		axs[0].grid(True)
+
+		axs[1].set_xlabel('time[s]')
+		axs[1].set_ylabel('I_l1[A] & U_l1[V]')
+		axs[1].grid(True)
 		#cxy, f = axs[1].cohere(s1, s2, 256, 1. / dt)
 		#axs[1].set_ylabel('coherence')
 		fig.tight_layout()
