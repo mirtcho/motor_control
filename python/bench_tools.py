@@ -111,24 +111,6 @@ class Yokogawa:
         instr.close()
         return data
 		
-    def request_waves_file(self,start=1,stop=24999000,f_name='yokogawa_all.csv'):
-        print ('Reading Channel 1 data from Yokogawa scope')
-        self.channel1_data = self.data_calc(1,start,stop)			#self.request_wave(1,start,stop)
-        print ('Reading Channel 2 data from Yokogawa scope')
-        self.channel2_data = self.data_calc(2,start,stop)			#self.request_wave(2,start,stop)
-        print ('Reading Channel 3 data from Yokogawa scope')
-        self.channel3_data = self.data_calc(3,start,stop)			#self.request_wave(3,start,stop)
-        print ('Reading Channel 4 data from Yokogawa scope')
-        self.channel4_data = self.data_calc(4,start,stop)			#self.request_wave(4,start,stop)
-        print ('Writing to file')
-        f = open(f_name, 'w')
-        writer = csv.writer(f)
-        # write a row to the csv file
-        #writer.writerow(self.channel1_data)
-        #writer.writerow(self.channel2_data)
-        #writer.writerow(self.channel3_data)
-        #writer.writerow(self.channel4_data)
-        f.close()
 		
     def show_file_data(self, f_name='yokogawa_all.csv'):
         f = open(f_name, 'r')
@@ -174,14 +156,14 @@ class Yokogawa:
         range_wave = float(self.request_range())
         length_array = len(data_raw)-(data_raw[1]-48)-3
         start_array = 2+data_raw[1]-48
-        array_word = []
+        array_word = np.empty(stop-start)
         data_temp=[1,2]
 
         for x in range(int(length_array/2)):
 
             data_temp[0]=data_raw[start_array+(2*x)]
             data_temp[1]=data_raw[start_array+1+(2*x)]
-            array_word.append(struct.unpack('h',bytearray(data_temp))[0]*range_wave/3200)
+            array_word[x] = (struct.unpack('h',bytearray(data_temp))[0]*range_wave/3200)
 
         return array_word
 

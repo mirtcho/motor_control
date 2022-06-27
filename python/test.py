@@ -10,16 +10,26 @@ class Test:
 		
 	def acq(self):
 		self.sample_time=float(self.yokogawa.request_xscale())*10/float(self.yokogawa.request_length())
-		self.motor_speed = []
-		self.motor_lpf_speed = []
-		self.t = []
+		self.acq_len=int(float(self.yokogawa.request_length()))
+		self.motor_speed = np.empty(self.acq_len)
+		self.motor_lpf_speed = np.empty(self.acq_len)
+		self.motor_lpf2_speed = np.empty(self.acq_len)
+		self.motor_lpf_delta = np.empty(self.acq_len)
+		#
+		self.t = np.empty(self.acq_len)
+		self.channel1_data = np.empty(self.acq_len)
+		self.channel2_data = np.empty(self.acq_len)
+		self.channel3_data = np.empty(self.acq_len)
+		self.channel4_data = np.empty(self.acq_len)		
 		#calculate speed LPF filter 
-		self.lpf_freq_hz=10000 #10KHz
+		self.lpf_freq_hz  =6000 #6KHz
+		self.lpf2_freq_hz = 300
 		sample_freq_hz=1/self.sample_time
 		self.lpf_freq_norm=self.lpf_freq_hz/sample_freq_hz
+		self.lpf_freq2_norm=self.lpf2_freq_hz/sample_freq_hz		
 		print ('sample time =', self.sample_time )		
-		start=1
-		stop=24999000		
+		start = 0				#1
+		stop  = self.acq_len  	#24999000		
 		print ('Reading Channel 1 data from Yokogawa scope')
 		self.channel1_data = self.yokogawa.data_calc(1,start,stop)			#self.request_wave(1,start,stop)
 		print ('Reading Channel 2 data from Yokogawa scope')
@@ -48,10 +58,8 @@ class Test:
 				self.nr_of_glitch+=1
 				return
 		else:
-			self.current_speed=60/(1024*dT)
+			self.current_speed=60/(2048*dT)
 		self.prev_sample=sample_nr
-		#divide by 4 goto mechancal spead insted of electrical
-		self.current_speed = self.current_speed/4
 		
 	def sub_increment(self,sample_nr):
 		dT = (sample_nr-self.prev_sample)*self.sample_time		
@@ -63,14 +71,11 @@ class Test:
 				self.nr_of_glitch+=1
 				return
 		else:
-			self.current_speed=-60/(1024*dT)
+			self.current_speed=-60/(2048*dT)
 		self.prev_sample=sample_nr
-		#divide by 4 goto mechancal spead insted of electrical
-		self.current_speed = self.current_speed/4
-
 		
 	def process_encoder_increments(self):
-		#velocity is calculatied in motor rotot [rev/min]
+		#velocity is calculatied in motor rotor [rev/min]
 		# 1 rev =1024 increments
 		# timebase is get from scope sample rate
 		#######
@@ -81,7 +86,9 @@ class Test:
 		self.current_speed = 0
 		enc_quadrant = 0
 		self.nr_of_glitch = 0
-		current_lpf_speed = 0		
+		current_lpf_speed = 0
+		current_lpf2_speed = 0
+		current_lpf_delta = 0
 		#for i in range (int(float(self.yokogawa.request_length()))-100):
 		for i in range (int(len(self.channel1_data))):
 			ch1=self.channel1_data[i]
@@ -132,12 +139,15 @@ class Test:
 				if ch1<TH_LOW and ch2<TH_LOW :
 					enc_quadrant=0
 					self.add_increment(i)						
-			current_lpf_speed+=self.lpf_freq_norm*(self.current_speed-current_lpf_speed)
-			self.motor_speed.append    (self.current_speed)			
-			self.motor_lpf_speed.append(current_lpf_speed)
-			self.t.append(self.sample_time*i)
-			
-			
+			current_lpf_speed  += self.lpf_freq_norm*(self.current_speed-current_lpf_speed)
+			current_lpf2_speed +=self.lpf_freq2_norm*(self.current_speed-current_lpf2_speed)
+			current_lpf_delta = current_lpf_speed-current_lpf2_speed
+			self.motor_speed[i]     = self.current_speed
+			self.motor_lpf_speed[i] = current_lpf_speed
+			self.motor_lpf2_speed[i]= current_lpf2_speed
+			self.motor_lpf_delta[i] = current_lpf_delta
+			self.t[i]               = self.sample_time*i
+	
 	def tst(self):
 		print ('start scope acquisition')
 		self.acq()
@@ -145,8 +155,8 @@ class Test:
 		self.process_encoder_increments()
 		# plot data 
 		fig, axs = plt.subplots(2, 1)
-		axs[0].plot(self.t[5000:], self.motor_speed[5000:], self.t[5000:], self.motor_lpf_speed[5000:])
-		#axs[1].plot(self.t[5000:], self.channel3_data[5000:], self.t[5000:], self.channel4_data[5000:])
+		#axs[0].plot(self.t[5000:], self.motor_speed[5000:], self.t[5000:], self.motor_lpf_speed[5000:])		
+		axs[0].plot( self.t[5000:], self.motor_lpf_speed[5000:])
 		axs[1].plot(self.t[5000:], self.channel1_data[5000:],self.t[5000:], self.channel2_data[5000:],self.t[5000:], self.channel4_data[5000:])
 		#axs[0].set_xlim(0, 2)
 		axs[0].set_xlabel('time[s]')
@@ -161,4 +171,31 @@ class Test:
 		fig.tight_layout()
 		plt.show()
 		
-	
+	def tst2(self):
+		print ('start scope acquisition')
+		self.acq()
+		print ('process increment data and calculate velocity')
+		self.process_encoder_increments()
+		#plot data
+		fig, ax1 = plt.subplots()
+		ax1.plot(self.t[5000:], self.motor_lpf_speed[5000:], color='red')
+		ax2 = ax1.twinx()
+		ax2.plot(self.t[5000:], self.channel4_data[5000:], color='blue')
+		fig.tight_layout()
+		plt.show()
+		#next figure
+		fig, ax1 = plt.subplots()
+		ax1.plot(self.t[5000:], self.motor_lpf2_speed[5000:], color='red')
+		ax2 = ax1.twinx()
+		ax2.plot(self.t[5000:], self.channel4_data[5000:], color='blue')
+		fig.tight_layout()
+		plt.show()
+		#3-th graph
+		fig, ax1 = plt.subplots()
+		ax1.plot(self.t[5000:], self.motor_lpf_delta[5000:], color='red')
+		ax2 = ax1.twinx()
+		ax2.plot(self.t[5000:], self.channel4_data[5000:], color='blue')
+		fig.tight_layout()
+
+		plt.show()
+		
