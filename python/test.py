@@ -2,7 +2,7 @@ from bench_tools import Yokogawa as Yokogawa
 
 import numpy as np
 import matplotlib.pyplot as plt
-
+from scipy.fft import fft, fftfreq
 
 class Test:
 	def __init__(self,ip='10.0.0.74'):
@@ -52,7 +52,7 @@ class Test:
 		dT = (sample_nr-self.prev_sample)*self.sample_time		
 		if (sample_nr == self.prev_sample or dT<3e-6):
 			if (dT==0):
-				self.current_speed = 8000 #2000rpm mechanical
+				self.current_speed = 2000 #2000rpm mechanical
 			else:
 				#glitch skip it
 				self.nr_of_glitch+=1
@@ -65,7 +65,7 @@ class Test:
 		dT = (sample_nr-self.prev_sample)*self.sample_time		
 		if (sample_nr == self.prev_sample or dT<3e-6):
 			if (dT==0):
-				self.current_speed = -8000 #2000rpm mechanical
+				self.current_speed = -2000 #2000rpm mechanical
 			else:
 				#glitch skip it
 				self.nr_of_glitch+=1
@@ -172,30 +172,60 @@ class Test:
 		plt.show()
 		
 	def tst2(self):
+	# Test Setup - scope
+	# channel 1 - Encoder S00  2V/div  BW=500KHz
+	# channel 2 - encoder S90  2V/div  BW=500KHz
+	# channel 3 = encoder index 2V/div BW=500KHz
+	# channel 4 - motor U_L1 - 20V/div BW=8KHz
+	
 		print ('start scope acquisition')
 		self.acq()
 		print ('process increment data and calculate velocity')
 		self.process_encoder_increments()
 		#plot data
 		fig, ax1 = plt.subplots()
-		ax1.plot(self.t[5000:], self.motor_lpf_speed[5000:], color='red')
+		ax1.plot(self.t[5000:], self.motor_lpf_speed[5000:], color='red',label="V[rpm]")
+		ax1.set_ylabel('V[rpm]')
 		ax2 = ax1.twinx()
-		ax2.plot(self.t[5000:], self.channel4_data[5000:], color='blue')
+		ax2.plot(self.t[5000:], self.channel4_data[5000:], color='blue',label="U_L1[v]")
+		ax2.set_ylabel('U_l1[v]')
 		fig.tight_layout()
+		plt.title("Motor velocity LPF=6KHz")		
 		plt.show()
 		#next figure
 		fig, ax1 = plt.subplots()
 		ax1.plot(self.t[5000:], self.motor_lpf2_speed[5000:], color='red')
+		ax1.set_ylabel('V[rpm]')
 		ax2 = ax1.twinx()
 		ax2.plot(self.t[5000:], self.channel4_data[5000:], color='blue')
+		ax2.set_ylabel('U_l1[v]')
 		fig.tight_layout()
+		plt.title("Motor speed LPF2=300Hz")
 		plt.show()
 		#3-th graph
 		fig, ax1 = plt.subplots()
 		ax1.plot(self.t[5000:], self.motor_lpf_delta[5000:], color='red')
+		ax1.set_ylabel('dV[rpm]')
 		ax2 = ax1.twinx()
 		ax2.plot(self.t[5000:], self.channel4_data[5000:], color='blue')
+		ax2.set_ylabel('U_l1[v]')
 		fig.tight_layout()
-
+		plt.title("Motor speed delta HF")
+		plt.show()
+		#4 fft the unfiltered encoder speed 
+		time_offset=5000
+		# Number of sample points
+		N = self.acq_len - time_offset
+		# sample rate
+		Ts = self.sample_time
+		x = np.linspace(0.0, N*Ts, N, endpoint=False)
+		y = self.motor_speed[time_offset:]
+		yf = fft(y)
+		xf = fftfreq(N, Ts)[:N//2]		
+		plt.plot(xf, 2.0/N * np.abs(yf[0:N//2]))
+		plt.xlabel('Freq') 
+		plt.ylabel('abs(FFT)') 
+		plt.title("FFT unfiltered motor speed")
+		plt.grid()
 		plt.show()
 		
