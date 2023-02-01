@@ -3,6 +3,9 @@ from bench_tools import Yokogawa as Yokogawa
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq
+#imports required by class fast_file()
+import pickle as pkl
+import time
 
 class Test:
 	def __init__(self,ip='10.0.0.74'):
@@ -229,3 +232,21 @@ class Test:
 		plt.grid()
 		plt.show()
 		
+class fast_file():
+  def __init__(self):
+    # empty constructor for now!
+
+  def save(self,fileName='scope.pkl',arrayInput = np.random.rand(4,50000000)): #Trial input
+    t0=time.time()
+    fileObject = open(fileName, 'wb')
+    pkl.dump(arrayInput, fileObject)
+    fileObject.close()
+    print ('Write time=',time.time()-t0,'[sec.]')
+    
+  def load (self, fileName='scope.pkl'):
+    t0=time.time()
+    fileObject2 = open(fileName, 'rb')
+    read_data = pkl.load(fileObject2)    
+    fileObject2.close()    
+    print ('Rrite time=',time.time()-t0,'[sec.]')
+    return (read_data)
